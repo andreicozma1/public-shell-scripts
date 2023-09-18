@@ -1,0 +1,96 @@
+#!/bin/bash
+
+TARGET="$1"
+EXTENSION="$2"
+PATH_DOWNLOAD="$HOME/Downloads/github-releases-downloads"
+
+# function to print usage
+print_usage() {
+    echo "Usage: $(basename "$0") <owner/repo> <extension>"
+}
+
+# Check if the target is not empty
+if [ -z "$TARGET" ]; then
+    print_usage
+    exit 1
+fi
+
+# Check if the extension is not empty
+if [ -z "$EXTENSION" ]; then
+    print_usage
+    exit 1
+fi
+
+# If extension doesnt start with a dot, add it
+if [[ ! "$EXTENSION" =~ ^\. ]]; then
+    EXTENSION=".$EXTENSION"
+fi
+
+echo "Target: $TARGET"
+TARGET_URL="https://api.github.com/repos/${TARGET}/releases/latest"
+
+echo "Target URL: $TARGET_URL"
+
+# Get the latest release information
+if [ -z "$TOKEN_GITHUB" ]; then
+    echo "NOTE: Authenticated requests allow for higher rate limits. Please set TOKEN_GITHUB environment variable with a personal access token to use authenticated requests."
+    release_info=$(curl -L \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "$TARGET_URL")
+else
+    release_info=$(curl -L \
+        -H "Accept: application/vnd.github+json" \
+        -H "Authorization: Bearer $TOKEN_GITHUB" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "$TARGET_URL")
+fi
+
+# exit if not terminated correctly
+if [ $? -ne 0 ]; then
+    echo "Error getting release info"
+    exit 1
+fi
+
+# Use JQ to remove "uploader" key from the JSON
+release_info=$(echo "$release_info" | jq 'del(.. | .author?)')
+release_info=$(echo "$release_info" | jq 'del(.. | .reactions?)')
+release_info=$(echo "$release_info" | jq 'del(.. | .uploader?)')
+
+# exit if not terminated correctly
+if [ $? -ne 0 ]; then
+    echo "Error getting release info"
+    exit 1
+fi
+
+echo "$release_info"
+
+# Use JQ to grab the browser_download_url for the extension
+download_url=$(echo "$release_info" | jq -r ".assets[] | select(.name | endswith(\"$EXTENSION\")) | .browser_download_url")
+echo "Download URL: $download_url"
+
+# exit if not terminated correctly
+if [ $? -ne 0 ]; then
+    echo "Error getting download URL"
+    exit 1
+fi
+
+mkdir -p "$PATH_DOWNLOAD"
+
+# Get the filename from the download URL
+filename=$(basename "$download_url")
+echo "Filename: $filename"
+
+PATH_DOWNLOAD_FULL="$PATH_DOWNLOAD/$filename"
+echo "Download path: $PATH_DOWNLOAD_FULL"
+
+# Download the file
+curl -L "$download_url" -o "$PATH_DOWNLOAD_FULL"
+
+# exit if not terminated correctly
+if [ $? -ne 0 ]; then
+    echo "Error downloading file"
+    exit 1
+fi
+
+echo "$PATH_DOWNLOAD_FULL"
